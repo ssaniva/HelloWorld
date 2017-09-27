@@ -1,0 +1,151 @@
+Splunk Credentials :
+
+please find below 5 environmental variables and their values that would need to be setup.    The token below is a temporary one, I am waiting for Splunk Support to give me the permanent one.
+
+SPLUNK_HEC_URL           https://http-inputs-dtcc.splunkcloud.com/services/collector/event
+SPLUNK_HOST                  <environment>_<SISID>_aws_cloudwatch_log
+SPLUNK_INDEX                 aws_cloudwatch_log_<SISID>
+SPLUNK_SOURCETYPE   log4j
+SPLUNK_HEC_TOKEN          AF953FB1-6A20-4989-9834-0507B865D9F2 
+
+Notes:
+<environment> - should have values of – 
+                p=production
+                u=PSE/UAT
+                q=QA
+                d=Dev
+<SIID> - this is the 3 TLA for application.
+
+
+
+
+
+
+Splunk- example  code :
+/**
+* Stream events from AWS CloudTrail S3 Logs to Splunk
+*
+* This function streams AWS CloudWatch Logs to Splunk using
+* Splunk's HTTP event collector API.
+*
+* Define the following Environment Variables in the console below to configure
+* this function to stream logs to your Splunk host:
+*
+* 1. SPLUNK_HEC_URL: URL address for your Splunk HTTP event collector endpoint.
+* Default port for event collector is 8088. Example: https://host.com:8088/services/collector
+*
+* 2. SPLUNK_HEC_TOKEN: Token for your Splunk HTTP event collector.
+* To create a new token for this Lambda function, refer to Splunk Docs:
+* http://docs.splunk.com/Documentation/Splunk/latest/Data/UsetheHTTPEventCollector#Create_an_Event_Collector_token
+*
+* 3. SPLUNK_INDEX:
+*
+* 4. SPLUNK_SOURCETYPE:
+*/
+
+// http://dev.splunk.com/view/event-collector/SP-CAAAE6Y
+'use strict';
+
+const SPLUNK_URL = process.env.SPLUNK_HEC_URL;
+const SPLUNK_TOKEN = process.env.SPLUNK_HEC_TOKEN;
+const SPLUNK_INDEX = process.env.SPLUNK_INDEX;
+const SPLUNK_SOURCETYPE = process.env.SPLUNK_SOURCETYPE;
+const SPLUNK_HOST = process.env.SPLUNK_HOST;
+
+if ( ! SPLUNK_URL ) {
+    throw new Error("'Splunk HEC URL' is not defined");
+} else if ( ! SPLUNK_TOKEN ) {
+    throw new Error("'Splunk HEC Token' is not defined");
+}
+
+
+const SplunkLogger = require('./lib/mysplunklogger');
+const zlib = require('zlib');
+const AWS = require('aws-sdk');
+const util = require('util');
+var s3 = new AWS.S3();
+
+let splunk;
+
+function processEvent(event, context, callback) {
+    //console.log('event = ', JSON.stringify(event, null, 2));
+
+    event.Records.forEach((record) => {
+        const bucket =  record.s3.bucket.name;
+        const filename = unescape(record.s3.object.key);
+        const filesize = record.s3.object.size;
+        
+        console.log('Processing %s', JSON.stringify({ Bucket: bucket, Key: filename, Size: filesize}, null, 2));
+     
+        var raw = '';
+        const stream = s3.getObject({ Bucket: bucket, Key: filename }).createReadStream().pipe(zlib.createGunzip());
+        stream.on('data', function(buffer) { raw += buffer.toString(); });
+        stream.on('end', function() {
+            var count = 0;    
+            //console.log("contents = ", raw); 
+            const contents = JSON.parse(raw);
+            contents.Records.forEach( (item) => {
+            
+                const time = Date.parse(item.eventTime);
+
+                const logparams = {
+                    time: time,
+                    event: item,
+                    host: SPLUNK_HOST,
+                    source: util.format('s3://%s/%s', bucket, filename),
+                    sourcetype: SPLUNK_SOURCETYPE,
+                    index: SPLUNK_INDEX,
+                };
+                //console.log('splunkEvent = ', JSON.stringify(logparams, null, 2));
+                console.log('%s @ %s %s [%s]', item.eventTime, item.eventSource, item.eventName, item.eventID);
+                splunk.logEvent(logparams);
+                count += 1;
+            })
+            
+            
+            // Send all the events in a single batch to Splunk
+            //console.log('splunk.flushAsync');
+            splunk.flushAsync((error, response) => {
+                if (error) {
+                    callback(error);
+                } else {
+                    console.log(`Response from Splunk:\n${response}`);
+                    console.log(`Successfully processed ${count} log event(s).`);
+                    //callback(null, count); // Return number of log events
+                }
+            });
+        });
+    });
+}
+
+exports.handler = (event, context, callback) => {
+    if (!splunk) {
+        splunk = new SplunkLogger({
+            url: SPLUNK_URL,
+           token: SPLUNK_TOKEN
+        });
+    }
+    processEvent(event, context, callback);
+};
+
+exports.encrypted = (event, context, callback) => {
+    if (splunk) {
+        processEvent(event, context, callback);
+    } else {
+        // Decrypt SPLUNK_TOKEN
+        const kms = new AWS.KMS();
+        kms.decrypt({ CiphertextBlob: new Buffer(SPLUNK_TOKEN, 'base64') }, (err, data) => {
+            if (err) {
+                console.log('SPLUNK_TOKEN Decrypt error:', err);
+                return callback(err);
+            }
+
+            const plaintext_token = data.Plaintext.toString('ascii');
+            splunk = new SplunkLogger({
+                url: SPLUNK_URL,
+                token: plaintext_token
+            });
+            processEvent(event, context, callback);
+        });
+    }
+};
