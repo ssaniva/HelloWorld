@@ -1,0 +1,139 @@
+configurations {
+    querydslapt
+}
+buildscript {
+    repositories {
+        maven { url "http://repo.spring.io/libs-release" }
+        mavenLocal()
+        mavenCentral()
+    }
+    dependencies {
+        classpath 'org.springframework.boot:spring-boot-gradle-plugin:1.1.5.RELEASE'
+        classpath 'com.h2database:h2:1.4.178'
+        classpath 'org.flywaydb:flyway-gradle-plugin:3.0'
+		classpath 'org.apache.httpcomponents:httpcore:4.4.4'
+        classpath 'org.apache.httpcomponents:fluent-hc:4.5.2'
+        classpath 'net.sf.ehcache:ehcache-core:2.6.0'
+    }
+}
+
+apply plugin: 'java'
+apply plugin: 'groovy'
+apply plugin: 'spring-boot'
+apply plugin: 'idea'
+apply plugin: 'eclipse'
+apply plugin: 'flyway'
+apply plugin: 'war'
+
+
+jar {
+    baseName = 'marketing-portal'
+    version = '0.1.0'
+}
+
+war {
+    baseName = 'marketing-portal'
+    version = '1.0.0'
+}
+
+flyway {
+    url = "jdbc:h2:tcp:/data/test;MVCC=TRUE"
+    user = 'sa'
+}
+
+repositories {
+    maven { url "http://repo.spring.io/libs-release" }
+      mavenLocal()
+   mavenCentral()
+   
+}
+
+sourceSets {
+    main.compileClasspath += configurations.providedRuntime
+    test.compileClasspath += configurations.providedRuntime
+    test.runtimeClasspath += configurations.providedRuntime
+}
+
+//processResources {
+    //filter org.apache.tools.ant.filters.ReplaceTokens, tokens: [
+       //     activeProfiles: activeProfiles
+    //]
+//}
+
+sourceCompatibility = 1.7
+
+//applicationDefaultJvmArgs = [
+//        "-agentlib:jdwp=transport=dt_socket,server=y,suspend=y,address=5005"
+//]
+
+
+dependencies {
+	
+	compile group: 'stax', name: 'stax', version: '1.2.0'
+	compile group: 'org.apache.httpcomponents', name: 'httpclient', version: '4.5.2'
+	compile group: 'org.apache.httpcomponents', name: 'httpcore', version: '4.4.4'
+	compile group: 'net.sf.ehcache', name: 'ehcache-core', version: '2.6.0'
+
+	compile 'org.apache.httpcomponents:fluent-hc:4.5.2'
+    compile 'org.springframework.boot:spring-boot-starter-thymeleaf'
+    compile 'org.thymeleaf.extras:thymeleaf-extras-springsecurity3'
+    compile 'org.springframework.boot:spring-boot-starter-security'
+    compile 'org.springframework.boot:spring-boot-starter-data-jpa'
+    compile 'org.springframework.integration:spring-integration-mail'
+    compile 'com.fasterxml.jackson.core:jackson-databind'
+    compile 'commons-codec:commons-codec:1.6'
+    compile 'javax.mail:mail:1.4.7'
+    compile 'org.projectlombok:lombok:1.14.4'
+    compile 'org.apache.commons:commons-lang3:3.1'
+    compile 'org.hibernate:hibernate-validator'
+    compile 'com.jolbox:bonecp:0.8.0.RELEASE'
+    compile 'com.google.api-client:google-api-client:1.18.0-rc'
+
+    testCompile 'org.codehaus.groovy:groovy:2.0.6'
+    testCompile 'org.spockframework:spock-core:0.7-groovy-2.0'
+
+    compile fileTree(dir: "${project.projectDir}/external/lib", includes: ['*.jar'])
+    compile 'com.h2database:h2:1.4.178'
+
+    // for the anontation processor
+    querydslapt group: 'com.mysema.querydsl', name: 'querydsl-jpa', version: '2.8.0', classifier: 'apt-one-jar', transitive: false
+
+    compile group: 'org.projectlombok', name: 'lombok', version: '1.14.2'
+
+    // for compiling
+    compile("com.mysema.querydsl:querydsl-jpa:3.5.1")
+    compile("com.mysema.querydsl:querydsl-apt:3.5.1")
+
+    testCompile("org.springframework.boot:spring-boot-starter-test")
+
+    //For tomcat
+    providedRuntime("org.springframework.boot:spring-boot-starter-tomcat")
+
+    compile("org.springframework.boot:spring-boot-starter-actuator")
+}
+
+//Querydsl
+
+def generatedSrcDir = 'src/main/generated'
+task createGeneratedSrcDir << {
+    file(generatedSrcDir).mkdirs()
+}
+compileJava.dependsOn createGeneratedSrcDir
+
+compileJava {
+    options.compilerArgs << '-processor' << 'com.mysema.query.apt.jpa.JPAAnnotationProcessor' << '-s' << file(generatedSrcDir).absolutePath
+}
+
+clean {
+    delete generatedSrcDir
+}
+
+task wrapper(type: Wrapper) {
+    gradleVersion = '2.1'
+}
+
+idea {
+    module {
+        sourceDirs += file('src/main/generated')
+    }
+}
